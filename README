@@ -1,0 +1,24 @@
+This Project created as a small research project which can be used later.
+
+The functionality it provides is defining settings of your application using annotations and pushing them into your class' fields on demand (usually on app load).
+It is sort of DI but without any container and works only for class field values.
+
+Benefits of it:
+- as a developer don't have to care about checking null values
+- as a developer don't have to define default values 
+- as a developer don't have to care about type casts
+
+Here is code snippet for setting declaration:
+
+class Foo {
+
+@Setting(name="bar")
+public static SOME_PROPERTY;
+
+}
+
+Now on application initialization when you read settings source and pass it to ASettings engine, the value of SOME_PROPERTY will be changed with one from the source.
+The original value from compiled code will be saved as default value.
+
+All settings and values are accessible via SettingsService so having a runtime admin section in you application allows you to treat and change this values uniformly without knowing each class and each field defined.
+
