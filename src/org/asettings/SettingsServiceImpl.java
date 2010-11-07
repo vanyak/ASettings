@@ -1,6 +1,7 @@
 package org.asettings;
 
 import java.lang.reflect.Field;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -8,195 +9,207 @@ import java.util.Iterator;
 import javassist.Modifier;
 
 import org.apache.log4j.Logger;
-import org.asettings.fieldsproviders.FieldsProviderStrategy;
+import org.asettings.SettingObject;
+import org.asettings.SettingsValuesSource;
+import org.asettings.fieldsproviders.FieldsProvider;
 import org.asettings.namingstrategies.NamingException;
 import org.asettings.namingstrategies.NamingStrategy;
 
-public class SettingsServiceImpl
-{
+public class SettingsServiceImpl {
+	private static final String SETTING_ALREADY_DEFINED = "Setting {0} already defined in {1} - new value ignored.";
+	private static final String SERVICE_NOT_INITIALIZED = "Settings service is not initialized properly";
+	private static final String NOT_A_SETTING_EXCEPTION = "Field {0} is not @Setting";
+	private static final String UNACCESSIBLE_FIELD_EXCEPTION = "Field: {0} should be static public and non-final";
 	private static Logger logger = Logger.getLogger(SettingsServiceImpl.class);
-	private static HashMap<String, SettingObject> settingsValuesStorage;
+	private HashMap<String, SettingObject> settingsValuesStorage;
+	private SettingsValuesSource settingsValuesSource;
+	private FieldsProvider fieldsProvider;
+	private NamingStrategy namingStrategy;
 
-	public SettingsServiceImpl(SettingsValuesSource source, FieldsProviderStrategy fieldsProvider, NamingStrategy namer)
-	{
+	public SettingsServiceImpl(SettingsValuesSource settingsValuesSource,
+			FieldsProvider fieldsProvider, NamingStrategy namingStrategy) {
+		this.settingsValuesSource = settingsValuesSource;
+		this.fieldsProvider = fieldsProvider;
+		this.namingStrategy = namingStrategy;
+
 		settingsValuesStorage = new HashMap<String, SettingObject>();
-		ArrayList<String> errors = new ArrayList<String>();
 
-		Iterator<Field> fieldsIterator = fieldsProvider.provideFields();
-		
-		while(fieldsIterator.hasNext())
-		{
-			Field currentField = fieldsIterator.next();
-			String error = handleSetting(source, namer, currentField);
-			if(error!=null){
-				errors.add(error);
-			}
-			
-		}
-		if(errors.size()>0)
-		{
-			throw new InstantiationError();
-		}
 	}
 
-	private String handleSetting(SettingsValuesSource source, NamingStrategy namer, Field field) 
-	{
-		logger.debug("Handling field "+formFieldName(field));
-		String error = null;
-		try
-		{
+	public boolean initialize() {
+		boolean hasErrors = false;
+
+		Iterator<Field> fieldsIterator = fieldsProvider.provideFields();
+
+		while (fieldsIterator.hasNext()) {
+			Field currentField = fieldsIterator.next();
+			hasErrors = hasErrors || handleSetting(settingsValuesSource, namingStrategy, currentField);
+		}
+		return !hasErrors;
+
+	}
+
+	private boolean handleSetting(SettingsValuesSource source, NamingStrategy namer, Field field) {
+		logger.debug("Handling field " + formFieldName(field));
+		boolean hasError = false;
+		try {
 			Setting setting = field.getAnnotation(Setting.class);
 			String settingName = namer.nameSetting(field);
 			validateSetting(field, setting);
-			saveSetting(settingName ,field, setting, source.getValue(settingName));
+			saveSetting(settingName, field, setting, source.getValue(settingName));
 		}
-		catch (IllegalAccessException e)
-		{
-			error = new StringBuilder().append("Setting variable should be non-final public static: ")
-				.append(formFieldName(field)).toString();
-			logger.error(error.toString(), e);
-			
-		}
-		catch (SettingValidationException e)
-		{
-			error = e.getMessage();
-			logger.error(e);
-		} catch (NamingException e) {
-			error = e.getMessage();
+		catch (IllegalAccessException e) {
+			hasError = true;
+			logger.error(MessageFormat.format(UNACCESSIBLE_FIELD_EXCEPTION,	formFieldName(field)), e);
+		} 
+		catch (SettingValidationException e) {
+			hasError = true;
 			logger.error(e);
 		}
-		return error;
+		catch (NamingException e) {
+			hasError = true;
+			logger.error(e);
+		}
+		return hasError;
 	}
 
-	private void saveSetting(String settingName, Field field, Setting setting, Object settingValue)	throws IllegalAccessException, IllegalArgumentException, SettingValidationException {
-		SettingObject settingObject = createSettingObject(field,setting,settingValue);
-		if(settingsValuesStorage.containsKey(settingObject.getName()))
-		{
-			StringBuilder warning = new StringBuilder().append("Setting ").append(settingName).append(" already defined in ")
-			.append(formFieldName(settingsValuesStorage.get(settingObject.getName()).getField())).append(" - new value ignored.");
+	
+	private void saveSetting(String settingName, Field field, Setting setting, Object settingValue) throws IllegalAccessException, IllegalArgumentException, SettingValidationException {
+		SettingObject settingObject = createSettingObject(field, setting,	settingValue);
 		
-			logger.warn(warning.toString());
+		if (settingsValuesStorage.containsKey(settingObject.getName())) {
+			logger.warn(MessageFormat.format(
+					SETTING_ALREADY_DEFINED,
+					settingName, formFieldName(settingsValuesStorage.get(settingObject.getName()).getField())));
 		}
-		else
-		{
+		else {
 			settingsValuesStorage.put(settingObject.getName(), settingObject);
-		}					
-		
+		}
+
 	}
 
-	private SettingObject createSettingObject(Field field, Setting setting, Object settingValue) throws IllegalArgumentException, IllegalAccessException, SettingValidationException
-	{
-		SettingObject settingObject = new SettingObjectImpl();
-		settingObject.setDefaultValue(field.get(null));
-		settingObject.setMandatory(setting.mandatory());
-		if(setting.name()==null || setting.name().equals(""))
-		{
-			settingObject.setName(formFieldName(field));
+	private SettingObject createSettingObject(Field field, Setting setting,	Object settingValue) throws SettingValidationException {
+		//TODO: factory it
+		SettingObject settingObject = null;
+		
+		try {
+			Object defaultValue = field.get(null);
+			String settingName = namingStrategy.nameSetting(field);
+			
+			if (settingValue == null && defaultValue == null) {
+				throw new SettingValidationException("Setting " + settingName + " has no default or defined value");
+			}
+			else if (settingValue == null && setting.mandatory()) {
+				throw new SettingValidationException("Mandatory Setting " + settingName + " has no defined value");
+			}
+
+			settingObject =  new SettingObjectImpl();
+			
+			settingObject.setDefaultValue(defaultValue);
+			settingObject.setMandatory(setting.mandatory());
+			settingObject.setName(settingName);
+			
+			if (setting.description() == null || setting.description().equals("")) {
+				settingObject.setDescription(setting.name());
+			} else {
+				settingObject.setDescription(setting.description());
+			}
+			if (settingValue != null) {
+				settingObject.setValue(settingValue);
+			}
+			else {
+				settingObject.setValue(settingObject.getDefaultValue());
+			}
+
+			field.set(null, settingObject.getValue());
+		} 
+		catch (IllegalAccessException e) {
+			String errorMessage = MessageFormat.format(UNACCESSIBLE_FIELD_EXCEPTION, formFieldName(field));
+			logger.error(errorMessage, e);
+			throw new SettingValidationException(errorMessage);
+		} catch (NamingException e) {
+
+			e.printStackTrace();
 		}
-		else
-		{
-			settingObject.setName(setting.name());
-		}
-		if(setting.description()==null || setting.description().equals(""))
-		{
-			settingObject.setDescription(setting.name());
-		}
-		else
-		{
-			settingObject.setDescription(setting.description());
-		}
-		if(settingValue==null && settingObject.getDefaultValue()==null)
-		{
-			throw new SettingValidationException("Setting " + settingObject.getName() + " has no default or defined value");
-		}
-		else if (settingValue==null && settingObject.isMandatory())
-		{
-			throw new SettingValidationException("Mandatory Setting " + settingObject.getName() + " has no defined value");
-		}
-		else if(settingValue!=null)
-		{
-			settingObject.setValue(settingValue);
-		}
-		else if(settingObject.getDefaultValue()!=null)
-		{
-			settingObject.setValue(settingObject.getDefaultValue());
-		}
-		else
-		{
-			//WTF????
-			throw new IllegalStateException("");
-		}
-		field.set(null, settingObject.getValue());
 		return settingObject;
 	}
 
-	private void validateSetting(Field field, Setting setting) throws SettingValidationException
-	{
-		if(!Modifier.isStatic(field.getModifiers()) || !Modifier.isPublic(field.getModifiers()) || Modifier.isFinal(field.getModifiers()))
-		{
-			StringBuilder message = new StringBuilder();
-			message.append("Field: ").append(formFieldName(field)).append(" for setting: ")
-												.append(setting.name()).append(" should be static public and non-final");
-			
-			throw new SettingValidationException(message.toString());
+	private void validateSetting(Field field, Setting setting) throws SettingValidationException {
+		logger.debug("Validting field " + formFieldName(field));
+		if(setting==null){
+			throw new SettingValidationException(MessageFormat.format(NOT_A_SETTING_EXCEPTION, formFieldName(field)));
+		}
+		if (isFieldAccessibleAndStatic(field)) {
+			throw new SettingValidationException(MessageFormat.format(UNACCESSIBLE_FIELD_EXCEPTION,formFieldName(field)));
 		}
 	}
-	
-	public SettingObject getSetting(String name)
-	{
+
+	private boolean isFieldAccessibleAndStatic(Field field) {
+		return !Modifier.isStatic(field.getModifiers())
+				|| !Modifier.isPublic(field.getModifiers())
+				|| Modifier.isFinal(field.getModifiers());
+	}
+
+	public SettingObject getSetting(String name) {
+		if(settingsValuesStorage==null){
+			throw new IllegalStateException(SERVICE_NOT_INITIALIZED);
+		}
 		return settingsValuesStorage.get(name);
 	}
-	
-	public void setSetting(SettingObject setting, String name)
-	{
+
+	public void setSetting(SettingObject setting, String name) {
+		if(settingsValuesStorage==null){
+			throw new IllegalStateException(SERVICE_NOT_INITIALIZED);
+		}
 		settingsValuesStorage.put(null, setting);
 	}
+
 	
-	public Object getSettingValue(String name)
-	{
+	public Object getSettingValue(String name) {
 		SettingObject setting = getSetting(name);
-		return setting==null? null:setting.getValue();
+		return setting == null ? null : setting.getValue();
 	}
-	
-	public void setSettingValue(Object value, String name)
-	{
+
+	public void setSettingValue(Object value, String name) {
 		SettingObject setting = getSetting(name);
-		if(setting == null)
-		{
-			throw new IllegalStateException("Setting "+name+" was not initialized in the system.");
+		if(setting == null)	{
+			logger.warn("Trying to save non-existing setting. Ignoring");
 		}
-		else
-		{
+		else {
 			setting.setValue(value);
 		}
 	}
-	
 
 	@SuppressWarnings("serial")
-	private class SettingValidationException extends Exception
-	{
+	private class SettingValidationException extends Exception {
 
-		public SettingValidationException(String message)
-		{
+		public SettingValidationException(String message) {
 			super(message);
 		}
+
+	}
+
+	/**
+	 * Use to reload setting values from the source to settings fields Any
+	 * previous changes to fields will be lost
+	 */
+	public void refetch() {
+	}
+
+	/**
+	 * Use to push changes from settings fields to setting source Opposite to
+	 * refetch()
+	 */
+	public void flush() {
 		
 	}
 	
-	/**
-	 * Use to reload setting values from the source to settings fields
-	 * Any previous changes to fields will be lost 
-	 */
-	public void refetch(){}
+
 	
-	/**
-	 * Use to push changes from settings fields to setting source 
-	 * Opposite to refetch()
-	 */
-	public void flush(){}
-	
-	private static String formFieldName(Field field){
-		StringBuilder name = new StringBuilder().append(field.getDeclaringClass().getName()).append(".").append(field.getName());
+	private static String formFieldName(Field field) {
+		StringBuilder name = new StringBuilder()
+				.append(field.getDeclaringClass().getName()).append(".")
+				.append(field.getName());
 		return name.toString();
 	}
 }

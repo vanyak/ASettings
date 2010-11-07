@@ -5,7 +5,7 @@ import java.text.MessageFormat;
 
 import org.asettings.Setting;
 
-public class FullClassFieldSettingNamer implements NamingStrategy{
+public class ShortClassFieldSettingNamer implements NamingStrategy{
 
 	private static final String EXCEPTION_MESSAGE = "Field ''{0}'' in class {1} is not @Setting";
 
@@ -18,7 +18,7 @@ public class FullClassFieldSettingNamer implements NamingStrategy{
 		}
 		
 		if( settingAnnotation.name()==null || settingAnnotation.name().trim().equals("")){
-			StringBuilder name = new StringBuilder().append(field.getDeclaringClass().getName()).append(".").append(field.getName());
+			StringBuilder name = new StringBuilder().append(field.getDeclaringClass().getSimpleName()).append(".").append(field.getName());
 			return name.toString();
 		}
 		return settingAnnotation.name();

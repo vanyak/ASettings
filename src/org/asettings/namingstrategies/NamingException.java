@@ -7,4 +7,14 @@ public class NamingException extends Exception{
 	 */
 	private static final long serialVersionUID = 7280159989781556458L;
 
+	public NamingException() {
+		super();
+	}
+
+	public NamingException(String arg0) {
+		super(arg0);
+	}
+
+	
+	
 }

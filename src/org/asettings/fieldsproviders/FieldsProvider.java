@@ -4,6 +4,6 @@ import java.lang.reflect.Field;
 import java.util.Iterator;
 
 
-public interface FieldsProviderStrategy {
+public interface FieldsProvider {
 	public Iterator<Field> provideFields();
 }

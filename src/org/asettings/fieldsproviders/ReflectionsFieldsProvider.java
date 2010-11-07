@@ -12,7 +12,7 @@ import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 import org.reflections.util.FilterBuilder;
 
-public class ReflectionsFieldsProvider implements FieldsProviderStrategy{
+public class ReflectionsFieldsProvider implements FieldsProvider{
 
 	private String scanPath;
 	
