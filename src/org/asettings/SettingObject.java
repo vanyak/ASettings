@@ -8,9 +8,9 @@ public interface SettingObject {
 
 	public abstract void setName(String name);
 
-	public abstract Object getValue();
+	public abstract Object getValue() throws IllegalArgumentException, IllegalAccessException;
 
-	public abstract void setValue(Object value);
+	public abstract void setValue(Object value) throws IllegalArgumentException, IllegalAccessException;
 
 	public abstract Object getDefaultValue();
 
